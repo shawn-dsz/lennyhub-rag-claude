@@ -1,0 +1,30 @@
+# LennyHub RAG - Requirements
+# RAG system for Lenny's Podcast transcripts
+
+# Core RAG package
+raganything>=1.2.9
+
+# LightRAG dependencies (should be installed with raganything)
+lightrag-hku>=1.4.9
+
+# OpenAI for LLM and embeddings
+openai>=1.0.0
+
+# Environment management
+python-dotenv>=1.0.0
+
+# Async support
+asyncio>=3.4.3
+
+# NumPy for embeddings
+numpy>=1.24.0
+
+# Optional: Progress bars (included with raganything but good to specify)
+tqdm>=4.65.0
+
+# Optional: Document parsing (already included with raganything)
+# mineru is included as a dependency
+# docling can be added if needed
+
+# Optional: For better performance
+# tiktoken>=0.5.0  # OpenAI tokenizer (usually auto-installed)
