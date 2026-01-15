@@ -5,13 +5,15 @@ Automated RAG Setup Script
 This script handles the complete setup process:
 1. Checks if Qdrant is installed
 2. Starts Qdrant server
-3. Builds embeddings from transcripts
+3. Builds embeddings from transcripts (sequential or parallel)
 4. Tests the RAG system
 
 Usage:
-    python setup_rag.py                    # Process all transcripts
-    python setup_rag.py --quick            # Process first 10 transcripts only
-    python setup_rag.py --max 5            # Process first 5 transcripts
+    python setup_rag.py                          # Process all transcripts (sequential)
+    python setup_rag.py --quick                  # Process first 10 transcripts
+    python setup_rag.py --max 50                 # Process first 50 transcripts
+    python setup_rag.py --max 50 --parallel      # Process 50 transcripts in parallel (5x faster)
+    python setup_rag.py --parallel --workers 10  # Custom concurrency (default: 5)
 """
 
 import os
@@ -20,9 +22,11 @@ import time
 import asyncio
 import argparse
 import subprocess
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 import requests
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -148,8 +152,188 @@ def check_api_key():
     return True
 
 
+def get_already_processed_docs():
+    """Get list of already processed document IDs"""
+    doc_status_file = Path("./rag_storage/kv_store_full_docs.json")
+    if doc_status_file.exists():
+        try:
+            with open(doc_status_file, 'r') as f:
+                docs = json.load(f)
+                return set(docs.keys())
+        except Exception as e:
+            print(f"Warning: Could not read docs file: {e}")
+    return set()
+
+
+# Global progress tracking for parallel mode
+processed_count = 0
+total_to_process = 0
+lock = asyncio.Lock()
+
+
+async def process_single_transcript_parallel(rag, transcript_file, semaphore):
+    """Process a single transcript with semaphore control (parallel mode)"""
+    global processed_count
+
+    async with semaphore:  # Limit concurrent processing
+        doc_id = f"transcript-{transcript_file.stem}"
+
+        try:
+            # Read transcript content
+            with open(transcript_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Insert into RAG system
+            content_list = [{
+                "type": "text",
+                "text": content,
+                "page_idx": 0
+            }]
+
+            await rag.insert_content_list(
+                content_list=content_list,
+                file_path=str(transcript_file),
+                doc_id=doc_id
+            )
+
+            # Update progress counter
+            async with lock:
+                processed_count += 1
+                current = processed_count
+
+            print(f"[{current}/{total_to_process}] ✓ {transcript_file.name}")
+            return True, transcript_file.name
+
+        except Exception as e:
+            print(f"[ERROR] ✗ {transcript_file.name}: {str(e)}")
+            return False, transcript_file.name
+
+
+async def build_rag_parallel(max_transcripts=None, workers=5):
+    """Build RAG system with parallel processing"""
+    global total_to_process, processed_count
+
+    from raganything import RAGAnything, RAGAnythingConfig
+    from lightrag.llm.openai import openai_complete_if_cache, openai_embed
+    from lightrag.utils import EmbeddingFunc
+    from qdrant_config import get_lightrag_kwargs
+    import numpy as np
+
+    start_time = datetime.now()
+
+    # Configure RAG system
+    config = RAGAnythingConfig(
+        working_dir="./rag_storage",
+        parser="mineru",
+        enable_image_processing=False,
+        enable_table_processing=False,
+        enable_equation_processing=False,
+    )
+
+    # Set up LLM and embedding functions
+    print("Setting up LLM and embedding functions...")
+
+    async def llm_model_func(prompt, system_prompt=None, history_messages=[], **kwargs):
+        return await openai_complete_if_cache(
+            "gpt-4o-mini",
+            prompt,
+            system_prompt=system_prompt,
+            history_messages=history_messages,
+            **kwargs
+        )
+
+    async def embedding_func(texts: list[str]) -> np.ndarray:
+        return await openai_embed(texts, model="text-embedding-3-small")
+
+    # Get Qdrant configuration
+    lightrag_kwargs = get_lightrag_kwargs(verbose=False)
+
+    # Initialize RAG system
+    print("Initializing RAG system...")
+    rag = RAGAnything(
+        config=config,
+        llm_model_func=llm_model_func,
+        embedding_func=EmbeddingFunc(
+            embedding_dim=1536,
+            max_token_size=8192,
+            func=embedding_func
+        ),
+        lightrag_kwargs=lightrag_kwargs
+    )
+
+    # Ensure LightRAG is initialized
+    await rag._ensure_lightrag_initialized()
+
+    # Get all transcript files
+    transcript_dir = Path("./data")
+    all_files = sorted(list(transcript_dir.glob("*.txt")))
+
+    # Get already processed documents
+    already_processed = get_already_processed_docs()
+    print(f"Already processed: {len(already_processed)} transcripts")
+
+    # Filter out already processed
+    transcript_files = []
+    for file in all_files:
+        doc_id = f"transcript-{file.stem}"
+        if doc_id not in already_processed:
+            transcript_files.append(file)
+
+    # Apply max limit
+    if max_transcripts and len(transcript_files) > max_transcripts:
+        transcript_files = transcript_files[:max_transcripts]
+
+    total_to_process = len(transcript_files)
+
+    if total_to_process == 0:
+        print("\n✓ All transcripts already processed!")
+        print(f"Total documents in system: {len(already_processed)}")
+        rag.close()
+        return True
+
+    print(f"\nWill process: {total_to_process} new transcript(s)")
+    print(f"Processing {workers} transcripts at a time (parallel mode)...")
+    print("\nStarting parallel processing...")
+    print("=" * 70 + "\n")
+
+    # Create semaphore for concurrency control
+    semaphore = asyncio.Semaphore(workers)
+
+    # Process all transcripts in parallel
+    tasks = [
+        process_single_transcript_parallel(rag, file, semaphore)
+        for file in transcript_files
+    ]
+
+    # Wait for all tasks to complete
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Calculate statistics
+    successful = sum(1 for r in results if isinstance(r, tuple) and r[0])
+    failed = total_to_process - successful
+
+    end_time = datetime.now()
+    duration = (end_time - start_time).total_seconds()
+
+    print("\n" + "=" * 70)
+    print("PARALLEL PROCESSING COMPLETE")
+    print("=" * 70)
+    print(f"Successfully processed: {successful}/{total_to_process}")
+    print(f"Failed: {failed}")
+    print(f"Total time: {duration:.1f} seconds ({duration/60:.1f} minutes)")
+    if successful > 0:
+        print(f"Average: {duration/successful:.1f} seconds per transcript")
+    print(f"Total documents in system: {len(already_processed) + successful}")
+    print("=" * 70)
+
+    # Close RAG system
+    rag.close()
+
+    return successful > 0
+
+
 async def build_rag(max_transcripts=None):
-    """Build RAG system with embeddings"""
+    """Build RAG system with sequential processing"""
     from raganything import RAGAnything, RAGAnythingConfig
     from lightrag.llm.openai import openai_complete_if_cache, openai_embed
     from lightrag.utils import EmbeddingFunc
@@ -181,7 +365,7 @@ async def build_rag(max_transcripts=None):
         return await openai_embed(texts, model="text-embedding-3-small")
 
     # Get Qdrant configuration
-    lightrag_kwargs = get_lightrag_kwargs()
+    lightrag_kwargs = get_lightrag_kwargs(verbose=False)
 
     # Initialize RAG system
     print("Initializing RAG system...")
@@ -200,18 +384,35 @@ async def build_rag(max_transcripts=None):
     transcript_dir = Path("./data")
     all_files = sorted(list(transcript_dir.glob("*.txt")))
 
-    if max_transcripts:
-        all_files = all_files[:max_transcripts]
+    # Get already processed documents
+    already_processed = get_already_processed_docs()
+    print(f"Already processed: {len(already_processed)} transcripts")
 
-    print(f"\nFound {len(all_files)} transcript(s) to process")
+    # Filter out already processed
+    transcript_files = []
+    for file in all_files:
+        doc_id = f"transcript-{file.stem}"
+        if doc_id not in already_processed:
+            transcript_files.append(file)
+
+    if max_transcripts:
+        transcript_files = transcript_files[:max_transcripts]
+
+    print(f"\nFound {len(transcript_files)} transcript(s) to process")
+
+    if len(transcript_files) == 0:
+        print("\n✓ All transcripts already processed!")
+        print(f"Total documents in system: {len(already_processed)}")
+        rag.close()
+        return True
 
     # Ensure LightRAG is initialized
     await rag._ensure_lightrag_initialized()
 
-    # Process each transcript
-    print("\nProcessing transcripts and building embeddings...")
-    for i, transcript_file in enumerate(all_files, 1):
-        print(f"\n[{i}/{len(all_files)}] Processing: {transcript_file.name}")
+    # Process each transcript sequentially
+    print("\nProcessing transcripts sequentially...")
+    for i, transcript_file in enumerate(transcript_files, 1):
+        print(f"\n[{i}/{len(transcript_files)}] Processing: {transcript_file.name}")
 
         # Read transcript content
         with open(transcript_file, 'r', encoding='utf-8') as f:
@@ -267,6 +468,17 @@ async def main():
         type=int,
         help="Maximum number of transcripts to process"
     )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Use parallel processing (5x faster, processes multiple transcripts at once)"
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=5,
+        help="Number of concurrent workers for parallel mode (default: 5, max: 10)"
+    )
     args = parser.parse_args()
 
     # Determine max transcripts
@@ -276,7 +488,20 @@ async def main():
     elif args.max:
         max_transcripts = args.max
 
-    print_header("RAG-Anything Setup with Local Qdrant")
+    # Validate workers
+    if args.workers > 10:
+        print("Warning: Max workers is 10 to avoid rate limiting. Using 10.")
+        args.workers = 10
+    elif args.workers < 1:
+        print("Warning: Workers must be at least 1. Using 1.")
+        args.workers = 1
+
+    mode_text = "PARALLEL" if args.parallel else "SEQUENTIAL"
+    print_header(f"RAG-Anything Setup with Local Qdrant ({mode_text})")
+
+    if args.parallel:
+        print(f"⚡ Parallel mode enabled with {args.workers} workers")
+        print(f"   This is ~{args.workers}x faster than sequential mode!\n")
 
     # Step 1: Check if Qdrant is installed
     print_step(1, "Checking Qdrant Installation")
@@ -307,13 +532,16 @@ async def main():
     # Step 4: Build RAG with embeddings
     print_step(4, "Building RAG System and Creating Embeddings")
 
-    mode_text = "all transcripts"
-    if max_transcripts:
-        mode_text = f"first {max_transcripts} transcripts"
-    print(f"Processing {mode_text}...\n")
+    mode_desc = f"first {max_transcripts} transcripts" if max_transcripts else "all transcripts"
+    processing_mode = f"parallel ({args.workers} workers)" if args.parallel else "sequential"
+    print(f"Processing {mode_desc} in {processing_mode} mode...\n")
 
     try:
-        success = await build_rag(max_transcripts=max_transcripts)
+        if args.parallel:
+            success = await build_rag_parallel(max_transcripts=max_transcripts, workers=args.workers)
+        else:
+            success = await build_rag(max_transcripts=max_transcripts)
+
         if not success:
             return 1
     except Exception as e:
@@ -329,12 +557,14 @@ async def main():
     print("  1. Query the system:")
     print('     python query_rag.py "Your question here"')
     print("     python query_rag.py --interactive\n")
-    print("  2. Query with sources:")
+    print("  2. Launch visual interface:")
+    print("     ./run_streamlit.sh\n")
+    print("  3. Query with sources:")
     print('     python query_with_sources.py "Your question"\n')
-    print("  3. Check Qdrant status:")
+    print("  4. Check Qdrant status:")
     print("     ./status_qdrant.sh")
-    print("     curl http://localhost:6333/health\n")
-    print("  4. View dashboard:")
+    print("     curl http://localhost:6333/\n")
+    print("  5. View dashboard:")
     print("     http://localhost:6333/dashboard\n")
 
     return 0
