@@ -7,7 +7,7 @@ A RAG (Retrieval-Augmented Generation) system built on transcripts from [Lenny's
 - **Knowledge Graph RAG**: Uses LightRAG for advanced retrieval with entity and relationship extraction
 - **Multi-Modal Ready**: Built on RAG-Anything framework (supports text, images, tables, equations)
 - **Hybrid Search**: Combines local context and global knowledge graph search
-- **70+ Sample Questions**: Pre-built questions covering career advice, growth frameworks, and more
+- **155+ Sample Questions**: 70+ single-transcript questions + 85+ multi-turn and cross-transcript questions
 - **Interactive Query Mode**: Easy-to-use CLI for exploring the content
 
 ## 📚 Included Transcripts
@@ -102,8 +102,11 @@ python query_rag.py
 ## 📖 Documentation
 
 - **[INSTALL.md](INSTALL.md)** - Detailed installation and setup guide
-- **[README_TRANSCRIPT_RAG.md](README_TRANSCRIPT_RAG.md)** - Technical documentation
-- **[sample_questions.txt](sample_questions.txt)** - 70+ pre-written questions
+- **[OVERVIEW.md](OVERVIEW.md)** - Technical architecture deep dive (vector DB, knowledge graph)
+- **[ADDING_TRANSCRIPTS.md](ADDING_TRANSCRIPTS.md)** - Guide for adding more transcripts
+- **[README_TRANSCRIPT_RAG.md](README_TRANSCRIPT_RAG.md)** - API documentation
+- **[sample_questions.txt](sample_questions.txt)** - 70+ single-transcript questions
+- **[MULTI_TURN_QUESTIONS.md](MULTI_TURN_QUESTIONS.md)** - 85+ multi-turn and cross-transcript questions
 
 ## 🗂️ Project Structure
 
