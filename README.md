@@ -321,13 +321,14 @@ python setup_rag.py --parallel --workers 8
 ---
 
 ## 🎓 Want to Build Your Own AI Agents?
+<img width="1177" height="327" alt="Screenshot 2026-01-16 at 20 13 13" src="https://github.com/user-attachments/assets/96b446d7-7db4-4fb5-a191-23fbab77ba8f" />
 
 This RAG system demonstrates advanced agent engineering with knowledge graphs, vector databases, and LLM orchestration. Want to learn how to build systems like this from scratch?
 
 **Join the Agent Engineering Bootcamp: Developers Edition**
 - Learn to build production-ready AI agents
 - Master RAG, LLMs, and agentic workflows
-- Taught by Hamza Farooq (Ex-Google, Prof UCLA & UMN)
+- Taught by [Hamza Farooq](https://www.linkedin.com/in/hamzafarooq/) (Ex-Google, Prof UCLA & UMN)
 - 4.8★ rating from 95+ students
 
 **[Get $200 OFF with code 200OFF →](https://maven.com/boring-bot/advanced-llm?promoCode=200OFF)**
@@ -576,9 +577,9 @@ Enjoyed building with this RAG system? Take your skills to the next level!
 
 **Agent Engineering Bootcamp: Developers Edition** teaches you to build production-ready AI agents like this one (and more advanced systems). Learn RAG pipelines, knowledge graphs, LLM orchestration, and agentic workflows from industry experts.
 
-**Taught by [Hamza Farooq](https://maven.com/boring-bot/advanced-llm?promoCode=200OFF)**
-- Ex-Google Engineer
-- Professor at UCLA & UMN
+**Taught by [Hamza Farooq](https://www.linkedin.com/in/hamzafarooq/)**
+- Founder & Ex-Google Engineer 
+- Professor at Stanford Continuing Studies, UCLA & UMN
 - 4.8★ rating (95+ students)
 
 **[Enroll now with $200 OFF →](https://maven.com/boring-bot/advanced-llm?promoCode=200OFF)**
