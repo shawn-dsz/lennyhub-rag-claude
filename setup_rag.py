@@ -140,15 +140,26 @@ def wait_for_qdrant(timeout=30):
 
 
 def check_api_key():
-    """Check if OpenAI API key is set"""
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("ERROR: OPENAI_API_KEY environment variable not set!")
-        print("\nPlease set your OpenAI API key:")
-        print("  export OPENAI_API_KEY='your-api-key-here'")
+    """Check if Anthropic and Voyage AI API keys are set"""
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    voyage_key = os.getenv("VOYAGE_API_KEY")
+
+    if not anthropic_key:
+        print("ERROR: ANTHROPIC_API_KEY environment variable not set!")
+        print("\nPlease set your Anthropic API key:")
+        print("  export ANTHROPIC_API_KEY='your-api-key-here'")
         print("\nOr add it to the .env file.")
         return False
-    print("✓ OpenAI API key found!")
+    print("✓ Anthropic API key found!")
+
+    if not voyage_key:
+        print("ERROR: VOYAGE_API_KEY environment variable not set!")
+        print("\nPlease set your Voyage AI API key (for embeddings):")
+        print("  export VOYAGE_API_KEY='your-api-key-here'")
+        print("\nGet one at: https://www.voyageai.com/")
+        print("Or add it to the .env file.")
+        return False
+    print("✓ Voyage AI API key found!")
     return True
 
 
@@ -214,7 +225,7 @@ async def build_rag_parallel(max_transcripts=None, workers=5):
     global total_to_process, processed_count
 
     from raganything import RAGAnything, RAGAnythingConfig
-    from lightrag.llm.openai import openai_complete_if_cache, openai_embed
+    from lightrag.llm.anthropic import anthropic_complete_if_cache, anthropic_embed
     from lightrag.utils import EmbeddingFunc
     from qdrant_config import get_lightrag_kwargs
     import numpy as np
@@ -230,20 +241,21 @@ async def build_rag_parallel(max_transcripts=None, workers=5):
         enable_equation_processing=False,
     )
 
-    # Set up LLM and embedding functions
-    print("Setting up LLM and embedding functions...")
+    # Set up LLM and embedding functions (using Claude + Voyage AI)
+    print("Setting up LLM (Claude) and embedding (Voyage AI) functions...")
 
     async def llm_model_func(prompt, system_prompt=None, history_messages=[], **kwargs):
-        return await openai_complete_if_cache(
-            "gpt-4o-mini",
+        return await anthropic_complete_if_cache(
+            "claude-sonnet-4-20250514",
             prompt,
             system_prompt=system_prompt,
             history_messages=history_messages,
+            max_tokens=4096,
             **kwargs
         )
 
     async def embedding_func(texts: list[str]) -> np.ndarray:
-        return await openai_embed(texts, model="text-embedding-3-small")
+        return await anthropic_embed(texts, model="voyage-3")
 
     # Get Qdrant configuration
     lightrag_kwargs = get_lightrag_kwargs(verbose=False)
@@ -254,7 +266,7 @@ async def build_rag_parallel(max_transcripts=None, workers=5):
         config=config,
         llm_model_func=llm_model_func,
         embedding_func=EmbeddingFunc(
-            embedding_dim=1536,
+            embedding_dim=1024,  # Voyage-3 uses 1024 dimensions
             max_token_size=8192,
             func=embedding_func
         ),
@@ -335,7 +347,7 @@ async def build_rag_parallel(max_transcripts=None, workers=5):
 async def build_rag(max_transcripts=None):
     """Build RAG system with sequential processing"""
     from raganything import RAGAnything, RAGAnythingConfig
-    from lightrag.llm.openai import openai_complete_if_cache, openai_embed
+    from lightrag.llm.anthropic import anthropic_complete_if_cache, anthropic_embed
     from lightrag.utils import EmbeddingFunc
     from qdrant_config import get_lightrag_kwargs
     import numpy as np
@@ -349,20 +361,21 @@ async def build_rag(max_transcripts=None):
         enable_equation_processing=False,
     )
 
-    # Set up LLM and embedding functions
-    print("Setting up LLM and embedding functions...")
+    # Set up LLM and embedding functions (using Claude + Voyage AI)
+    print("Setting up LLM (Claude) and embedding (Voyage AI) functions...")
 
     async def llm_model_func(prompt, system_prompt=None, history_messages=[], **kwargs):
-        return await openai_complete_if_cache(
-            "gpt-4o-mini",
+        return await anthropic_complete_if_cache(
+            "claude-sonnet-4-20250514",
             prompt,
             system_prompt=system_prompt,
             history_messages=history_messages,
+            max_tokens=4096,
             **kwargs
         )
 
     async def embedding_func(texts: list[str]) -> np.ndarray:
-        return await openai_embed(texts, model="text-embedding-3-small")
+        return await anthropic_embed(texts, model="voyage-3")
 
     # Get Qdrant configuration
     lightrag_kwargs = get_lightrag_kwargs(verbose=False)
@@ -373,7 +386,7 @@ async def build_rag(max_transcripts=None):
         config=config,
         llm_model_func=llm_model_func,
         embedding_func=EmbeddingFunc(
-            embedding_dim=1536,
+            embedding_dim=1024,  # Voyage-3 uses 1024 dimensions
             max_token_size=8192,
             func=embedding_func
         ),
@@ -514,8 +527,8 @@ async def main():
     else:
         print("✓ Qdrant is already installed!")
 
-    # Step 2: Check API key
-    print_step(2, "Checking OpenAI API Key")
+    # Step 2: Check API keys
+    print_step(2, "Checking Anthropic and Voyage AI API Keys")
     if not check_api_key():
         return 1
 

@@ -237,7 +237,7 @@ def check_qdrant_status():
 def create_rag_instance():
     """Create a fresh RAG instance (not cached to avoid event loop issues)"""
     from raganything import RAGAnything, RAGAnythingConfig
-    from lightrag.llm.openai import openai_complete_if_cache, openai_embed
+    from lightrag.llm.anthropic import anthropic_complete_if_cache, anthropic_embed
     from lightrag.utils import EmbeddingFunc
     from qdrant_config import get_lightrag_kwargs
     import numpy as np
@@ -251,16 +251,17 @@ def create_rag_instance():
     )
 
     async def llm_model_func(prompt, system_prompt=None, history_messages=[], **kwargs):
-        return await openai_complete_if_cache(
-            "gpt-4o-mini",
+        return await anthropic_complete_if_cache(
+            "claude-sonnet-4-20250514",
             prompt,
             system_prompt=system_prompt,
             history_messages=history_messages,
+            max_tokens=4096,
             **kwargs
         )
 
     async def embedding_func(texts: list[str]) -> np.ndarray:
-        return await openai_embed(texts, model="text-embedding-3-small")
+        return await anthropic_embed(texts, model="voyage-3")
 
     lightrag_kwargs = get_lightrag_kwargs(verbose=False)
 
@@ -268,7 +269,7 @@ def create_rag_instance():
         config=config,
         llm_model_func=llm_model_func,
         embedding_func=EmbeddingFunc(
-            embedding_dim=1536,
+            embedding_dim=1024,  # Voyage-3 uses 1024 dimensions
             max_token_size=8192,
             func=embedding_func
         ),
@@ -419,10 +420,18 @@ def main():
 
         # API Key status
         st.markdown("---")
-        if os.getenv("OPENAI_API_KEY"):
-            st.success("✓ OpenAI API Key: Configured")
+        anthropic_ok = os.getenv("ANTHROPIC_API_KEY")
+        voyage_ok = os.getenv("VOYAGE_API_KEY")
+        if anthropic_ok and voyage_ok:
+            st.success("✓ Anthropic API Key: Configured")
+            st.success("✓ Voyage AI API Key: Configured")
         else:
-            st.error("✗ OpenAI API Key: Missing")
+            if not anthropic_ok:
+                st.error("✗ Anthropic API Key: Missing")
+            else:
+                st.success("✓ Anthropic API Key: Configured")
+            if not voyage_ok:
+                st.error("✗ Voyage AI API Key: Missing")
 
         # Transcript stats
         st.markdown("---")
@@ -494,8 +503,8 @@ def main():
         if search_button and question:
             if qdrant_status["status"] != "running":
                 st.error("⚠️ Qdrant is not running. Please start it first: `./start_qdrant.sh`")
-            elif not os.getenv("OPENAI_API_KEY"):
-                st.error("⚠️ OpenAI API key is not configured. Please set it in the .env file.")
+            elif not os.getenv("ANTHROPIC_API_KEY") or not os.getenv("VOYAGE_API_KEY"):
+                st.error("⚠️ API keys not configured. Please set ANTHROPIC_API_KEY and VOYAGE_API_KEY in the .env file.")
             else:
                 with st.spinner("🤔 Thinking..."):
                     # Query with fresh RAG instance

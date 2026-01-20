@@ -10,7 +10,7 @@ import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 from raganything import RAGAnything, RAGAnythingConfig
-from lightrag.llm.openai import openai_complete_if_cache, openai_embed
+from lightrag.llm.anthropic import anthropic_complete_if_cache, anthropic_embed
 from lightrag.utils import EmbeddingFunc
 from qdrant_config import get_lightrag_kwargs
 import numpy as np
@@ -21,15 +21,21 @@ load_dotenv()
 MAX_TRANSCRIPTS = 10  # Process only first 10 transcripts
 
 async def main():
-    # Check for API key
-    if not os.getenv("OPENAI_API_KEY"):
-        print("ERROR: OPENAI_API_KEY environment variable not set!")
-        print("\nPlease set your OpenAI API key:")
-        print("  export OPENAI_API_KEY='your-api-key-here'")
+    # Check for API keys
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("ERROR: ANTHROPIC_API_KEY environment variable not set!")
+        print("\nPlease set your Anthropic API key:")
+        print("  export ANTHROPIC_API_KEY='your-api-key-here'")
+        return
+
+    if not os.getenv("VOYAGE_API_KEY"):
+        print("ERROR: VOYAGE_API_KEY environment variable not set!")
+        print("\nPlease set your Voyage AI API key:")
+        print("  export VOYAGE_API_KEY='your-api-key-here'")
         return
 
     print("=" * 70)
-    print("QUICK RAG BUILD - First 10 Transcripts")
+    print("QUICK RAG BUILD - First 10 Transcripts (Claude + Voyage AI)")
     print("=" * 70)
     print()
 
@@ -42,18 +48,19 @@ async def main():
         enable_equation_processing=False,
     )
 
-    # Set up LLM and embedding functions
+    # Set up LLM and embedding functions (using Claude + Voyage AI)
     async def llm_model_func(prompt, system_prompt=None, history_messages=[], **kwargs):
-        return await openai_complete_if_cache(
-            "gpt-4o-mini",
+        return await anthropic_complete_if_cache(
+            "claude-sonnet-4-20250514",
             prompt,
             system_prompt=system_prompt,
             history_messages=history_messages,
+            max_tokens=4096,
             **kwargs
         )
 
     async def embedding_func(texts: list[str]) -> np.ndarray:
-        return await openai_embed(texts, model="text-embedding-3-small")
+        return await anthropic_embed(texts, model="voyage-3")
 
     # Get Qdrant configuration
     lightrag_kwargs = get_lightrag_kwargs()
@@ -64,7 +71,7 @@ async def main():
         config=config,
         llm_model_func=llm_model_func,
         embedding_func=EmbeddingFunc(
-            embedding_dim=1536,
+            embedding_dim=1024,  # Voyage-3 uses 1024 dimensions
             max_token_size=8192,
             func=embedding_func
         ),

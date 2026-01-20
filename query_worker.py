@@ -20,7 +20,7 @@ async def run_query(question: str, mode: str = "hybrid") -> dict:
     """Run a RAG query and return the result"""
     try:
         from raganything import RAGAnything, RAGAnythingConfig
-        from lightrag.llm.openai import openai_complete_if_cache, openai_embed
+        from lightrag.llm.anthropic import anthropic_complete_if_cache, anthropic_embed
         from lightrag.utils import EmbeddingFunc
         from qdrant_config import get_lightrag_kwargs
         import numpy as np
@@ -34,16 +34,17 @@ async def run_query(question: str, mode: str = "hybrid") -> dict:
         )
 
         async def llm_model_func(prompt, system_prompt=None, history_messages=[], **kwargs):
-            return await openai_complete_if_cache(
-                "gpt-4o-mini",
+            return await anthropic_complete_if_cache(
+                "claude-sonnet-4-20250514",
                 prompt,
                 system_prompt=system_prompt,
                 history_messages=history_messages,
+                max_tokens=4096,
                 **kwargs
             )
 
         async def embedding_func(texts: list[str]) -> np.ndarray:
-            return await openai_embed(texts, model="text-embedding-3-small")
+            return await anthropic_embed(texts, model="voyage-3")
 
         lightrag_kwargs = get_lightrag_kwargs(verbose=False)
 
@@ -51,7 +52,7 @@ async def run_query(question: str, mode: str = "hybrid") -> dict:
             config=config,
             llm_model_func=llm_model_func,
             embedding_func=EmbeddingFunc(
-                embedding_dim=1536,
+                embedding_dim=1024,  # Voyage-3 uses 1024 dimensions
                 max_token_size=8192,
                 func=embedding_func
             ),
